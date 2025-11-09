@@ -74,19 +74,21 @@ if [ -d "$directory" ]; then
                 binary_name=$(basename "$file" .go)
                 
                 echo "[$(date)] Compiling Go job: $filename"
-           
+                
+                # Compile the Go file
                 GOOS=linux GOARCH=$(dpkg --print-architecture) go build -o "$temp_dir/$binary_name" "$file" 2>&1 | while read line; do
                     echo "[$(date)] [GO-COMPILE] $line"
                 done
                 
-                if [ $? -eq 0 ]; then
+                compile_exit_code=$?
+                if [ $compile_exit_code -eq 0 ]; then
                     echo "[$(date)] Compilation successful. Running binary."
                     # Execute the compiled binary
                     "$temp_dir/$binary_name" 2>&1 | while read line; do
                         echo "[$(date)] [GO-RUN] $line"
                     done
                 else
-                    echo "[$(date)] Compilation failed. Check output above for details."
+                    echo "[$(date)] Compilation failed with exit code $compile_exit_code. Check output above for details."
                 fi
                 
                 # Clean up the temporary directory
@@ -95,11 +97,32 @@ if [ -d "$directory" ]; then
             "")
                 # Execute files with no extension as a binary
                 echo "[$(date)] Running binary job: $filename"
-                "$file" 2>&1 | while read line; do
+                
+                # Double-check file exists and is executable
+                if [ ! -f "$file" ]; then
+                    echo "[$(date)] ERROR: File $filename not found"
+                    continue
+                fi
+                
+                # Check if file is executable
+                if [ ! -x "$file" ]; then
+                    echo "[$(date)] WARNING: File $filename is not executable, attempting to fix..."
+                    chmod +x "$file"
+                    if [ ! -x "$file" ]; then
+                        echo "[$(date)] ERROR: Failed to make $filename executable"
+                        continue
+                    fi
+                    echo "[$(date)] Successfully made $filename executable"
+                fi
+                
+                # Try to execute the file
+                echo "[$(date)] Executing $filename..."
+                if "$file" 2>&1 | while read line; do
                     echo "[$(date)] [BINARY] $line"
-                done
-                exit_code=$?
-                if [ $exit_code -ne 0 ]; then
+                done; then
+                    echo "[$(date)] Binary job $filename completed successfully"
+                else
+                    exit_code=$?
                     echo "[$(date)] ERROR: Binary execution failed with exit code $exit_code."
                     echo "[$(date)] This often means a missing library or dependency. Try running 'ldd $file' in your shell."
                 fi
